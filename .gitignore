@@ -1,0 +1,9 @@
+# python & ide
+*.pyc
+.idea
+__pycache__
+
+
+# data
+/data
+*.npy

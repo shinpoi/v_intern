@@ -55,7 +55,7 @@ def load_data(name='data.npy'):
     try:
         data = np.load(name)
     except FileNotFoundError:
-        logging.warning("not found datafile. try to load original data file..." % name)
+        logging.warning("not found datafile. try to load original data file...")
         data = data2npy(save_name=name)
     return data
 
@@ -99,6 +99,24 @@ def sq_distance(x, y):
     return ((x-y)**2).mean()
 
 
+# sub-function in k-means. get data and k-means's center, return list[group][users].
+def matche_user(data, points, distance=sim_pearson):
+    k = points.shape[0]
+    user_len = data.shape[0]
+    matches = [[] for i in range(k)]
+    for i in range(user_len):
+        min_distance = 9999
+        min_point = k + 1
+        for j in range(k):
+            d = distance(data[i], points[j])
+            if d < min_distance:
+                min_distance = d
+                min_point = j
+        matches[min_point].append(i)
+    return matches
+
+
+# k-means algorithm. get data and k. return np.array of k center.
 def k_means(data, k, distance=sim_pearson):
     user_len = data.shape[0]
     item_len = data.shape[1]
@@ -117,16 +135,7 @@ def k_means(data, k, distance=sim_pearson):
         loop += 1
         # matches
         logging.info("matching... loop: %d" % loop)
-        matches = [[] for i in range(k)]
-        for i in range(user_len):
-            min_distance = 9999
-            min_point = k+1
-            for j in range(k):
-                d = distance(data[i], points[j])
-                if d < min_distance:
-                    min_distance = d
-                    min_point = j
-            matches[min_point].append(i)
+        matches = matche_user(data, points, distance=distance)
 
         if matches == last_matches:
             logging.info("cluster complete! loop: %d" % loop)
@@ -155,6 +164,7 @@ def k_means(data, k, distance=sim_pearson):
                    matches_np.ctypes.data_as(POINTER(c_int)),
                    matches_len.ctypes.data_as(POINTER(c_int)),
                    points.ctypes.data_as(POINTER(c_float)))
+
         """
         # move point by Python
         for i in range(k):
@@ -168,6 +178,15 @@ def k_means(data, k, distance=sim_pearson):
                     if data[user][j] != 0:
                         num += 1
                 points[i][j] = sum(sum_)/num
+
+        # move point(euclid distance)
+        points = np.zeros((k, item_len), dtype=np.float32)
+        for i in range(len(matches)):
+            for j in range(len(matches[i])):
+                points[i] += data[matches[i][j]]
+            points[i] /= len(matches[i])
+        if loop > 20:
+            break
         """
 
     # logging.debug("k points: %s" % str(points))
@@ -175,8 +194,8 @@ def k_means(data, k, distance=sim_pearson):
     return points
 
 
-# create a 2-dim graph of users
-def mds2d(data, distance=sim_pearson, move_rate=0.00005, max_loop=1000):
+# create a 2-dim graph of users. return np.array of each users location.
+def mds2d(data, distance=sim_pearson, move_rate=0.00005, max_loop=100, save_name="graph.npy"):
     logging.info("function scaledown is runing...")
 
     user_len = data.shape[0]
@@ -242,8 +261,8 @@ def mds2d(data, distance=sim_pearson, move_rate=0.00005, max_loop=1000):
             logging.info("loop: %d, last_error < error_sum !! turn down move_rate, now move_rate is %f" % (m, move_rate))
             if move_rate < 0.00001:
                 logging.warning("loop will break!!" % m)
-                np.save("graph.npy", location)
-                logging.info("save graph as '%s'" % "graph.npy")
+                np.save(save_name, location)
+                logging.info("save graph as '%s'" % save_name)
                 break
         last_error = error_sum
 
@@ -252,17 +271,33 @@ def mds2d(data, distance=sim_pearson, move_rate=0.00005, max_loop=1000):
             # print("user[%d] move %s" % (i, str(move_rate*move[i])))
             location[i] -= move_rate*move[i]
 
-    np.save("graph.npy", location)
+    np.save(save_name, location)
     return location
 
 
-def draw2d(location, save_name='draw2d.png'):
+# trans location to image.
+def draw2d(location, matches=(), save_name='draw2d.png'):
+    if not matches:
+        matches = [[i for i in range(location.shape[0])]]
+        k = 0
+        color = [(0, 0, 0)]
+    else:
+        k = len(matches)
+        color = []
+        for i in range(k):
+            color.append((np.random.randint(256), np.random.randint(256), np.random.randint(256)))
+        logging.info("color is: %s" % str(color))
+
     img = Image.new('RGB', (5000, 5000), (255, 255, 255))
     draw = ImageDraw.Draw(img)
     for i in range(len(location)):
         x = (location[i][0] + 0.5) * 2000
         y = (location[i][1] + 0.5) * 2000
-        draw.text((x, y), str(i), (0, 0, 0))
+        group = 0
+        for j in range(k):
+            if i in matches[j]:
+                group = j
+        draw.text((x, y), str(i+1), color[group])
     img.save(save_name, 'PNG')
 
 ###########################
@@ -271,7 +306,10 @@ def draw2d(location, save_name='draw2d.png'):
 if __name__ == "__main__":
     # data2npy()
     data_set = load_data()
-    # local = np.load('graph.npy')
+    local = np.load('graph.npy')
+    # local = mds2d(data_set, distance=sq_distance, move_rate=0.001)
+    points = np.load('k_means_5.npy')
+    # points = k_means(data_set, k=5)
     """
     print(sim_pearson([], []))
     print(sim_pearson([1, 2, 3, 4, 5], [2, 3, 4, 5, 6]))
@@ -282,7 +320,10 @@ if __name__ == "__main__":
     print(sim_pearson([1, 2, 1, 0, 0], [1, 2, 0, 0, 0]))
     """
     # ps = k_means(data_set, 5, distance=sq_distance)
-    ps = k_means(data_set, 5)
-    print("k-means end!")
-
-    # draw2d(local)
+    # ps = k_means(data_set, 20)
+    # print("k-means end!")
+    print("start match users")
+    m = matche_user(data_set, points, distance=sq_distance)
+    for line in m:
+        print(line)
+    draw2d(local, m)

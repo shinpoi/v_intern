@@ -5,7 +5,7 @@ __pycache__
 
 
 # data
-/data
+*.log
 *.npy
 *.jpg
 *.png

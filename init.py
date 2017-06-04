@@ -9,18 +9,13 @@ from PIL import Image, ImageDraw
 import setting
 
 move_point = cdll.LoadLibrary('./move_point.so').move_point
-logging.basicConfig(level=setting.LOG_LEVEL,
-                    format='[%(levelname)s]   \t %(asctime)s \t%(message)s\t',
-                    datefmt='%Y/%m/%d (%A) - %H:%M:%S',
-                    )
-
 data_path = setting.DATA_PATH
 if not data_path.endswith('/'):
     data_path += '/'
 
-
 ###########################
 # once function
+
 
 # read original data -->  trans data to array like data[user][item] = rating -->  save data as .npy files.
 def data2npy(src_name='u.data', save_name='data.npy'):
@@ -52,8 +47,7 @@ def data2npy(src_name='u.data', save_name='data.npy'):
 def load_category(src_name='u.genre'):
     category = {}
     temp = []
-    # with open(data_path + src_name) as f:
-    with open(src_name) as f:
+    with open(data_path + src_name) as f:
         while 1:
             l = f.readline()
             if not l[:-1]:
@@ -65,7 +59,23 @@ def load_category(src_name='u.genre'):
     return category
 
 
-def load_item_info()
+def load_item_info(src_name='u.item'):
+    category_temp = []
+    name_temp = []
+    with open(data_path + src_name) as f:
+        while 1:
+            l = f.readline()
+            if not l:
+                break
+            category_temp.append(l[:-1].split('|')[5:])
+            name_temp.append(l.split('|')[1])
+        category_info = np.array(category_temp, dtype=np.uint8)
+        name_dict = {}
+        for i in range(len(name_temp)):
+            name_dict[i] = name_temp[i]
+        logging.debug("category_info.shape: %s" % str(category_info.shape))
+        logging.debug("length of name_dict: %d" % len(name_dict))
+    return category_info, name_dict
 
 # end once function
 ###########################
@@ -377,9 +387,13 @@ def test_2d_data(data_len=600, k=10, save_name="k_means_test.png"):
     draw2d(data_set, m, save_name=save_name)
 
 
-def test_real_data(data_name='data.npy', k=10, rec_users=(1, 10, 100, 500)):
+def test_real_data(data_name='data.npy', k=10, rec_users=(1, 345, 579, 900)):
     data_set = load_data(data_name)
     logging.info("load data...")
+
+    info, name = load_item_info()
+    logging.info("load information of movies...")
+
     try:
         centers = np.load('k_means_k%d.npy' % k)
         logging.info("load k-means centers...")
@@ -389,11 +403,14 @@ def test_real_data(data_name='data.npy', k=10, rec_users=(1, 10, 100, 500)):
 
     logging.info("create k-means groups list... wait a minute")
     group_list = matche_user(data_set, centers)
+
+    # print recommend message
     for user in rec_users:
         rec_set = recommend(data_set, user_id=user-1, matches=group_list, rec_num=20)
-        logging.info("For user: %d, Recommend movie:" % (user-1))
+        print("\n")
+        logging.info("For user: %d, Recommend movie:" % user)
         for rating, item in rec_set:
-            logging.info("%d  by rating: %f" % (item, rating))
+            logging.info("%s  ,  rating: %f" % (name[item], rating))
 
 ###########################
 # run

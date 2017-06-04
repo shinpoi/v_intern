@@ -2,4 +2,6 @@
 # Python3.5
 
 DATA_PATH = './data/'
-LOG_LEVEL = 'DEBUG'
+
+# set one of 'DEBUG', 'INFO', 'WARN', 'ERROR', 'CRITICAL'
+LOG_LEVEL = 'INFO'

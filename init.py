@@ -41,10 +41,10 @@ def data2npy(src_name='u.data', save_name='data.npy'):
 
         return npy_data
 
-
+"""
 # return a dict of category's info
 # e.g: {'0': 'unknown', '1': 'Action', ... '18': 'Western'}
-def load_category(src_name='u.genre'):
+def load_category_name(src_name='u.genre'):
     category = {}
     temp = []
     with open(data_path + src_name) as f:
@@ -57,8 +57,12 @@ def load_category(src_name='u.genre'):
         for c in temp:
             category[c[1]] = c[0]
     return category
+"""
 
 
+# return (item_category, name_dict)
+# item_category.shape: (item_len, category), np.array of item include which category
+# name_dict: key-value: {item id: item name}
 def load_item_info(src_name='u.item'):
     category_temp = []
     name_temp = []
@@ -69,13 +73,33 @@ def load_item_info(src_name='u.item'):
                 break
             category_temp.append(l[:-1].split('|')[5:])
             name_temp.append(l.split('|')[1])
-        category_info = np.array(category_temp, dtype=np.uint8)
+        item_category = np.array(category_temp, dtype=np.uint8)
         name_dict = {}
         for i in range(len(name_temp)):
             name_dict[i] = name_temp[i]
-        logging.debug("category_info.shape: %s" % str(category_info.shape))
+        logging.debug("category_info.shape: %s" % str(item_category.shape))
         logging.debug("length of name_dict: %d" % len(name_dict))
-    return category_info, name_dict
+    return item_category, name_dict
+
+
+# return a np.array(shape = (user_len, category_len)) of how user like of each category
+# item_category.shape = (item_len, category_len), np.array of each item included in which category
+def user_favourite_array(data, item_category):
+    user_len = data.shape[0]
+    item_len = data.shape[1]
+    category_len = item_category.shape[1]
+    user_favourite = np.zeros((user_len, category_len), dtype=np.float32)
+
+    for i in range(user_len):
+        sum_category = np.zeros(category_len, dtype=np.float32)
+        for j in range(item_len):
+            if data[i][j] == 0:
+                continue
+            sum_category += data[i][j] * item_category[j]
+        user_favourite[i] = sum_category / sum(sum_category)
+
+    return user_favourite
+
 
 # end once function
 ###########################
@@ -189,7 +213,8 @@ def k_means(data, k, distance=sim_pearson, init_method=np.random.randint, init_p
                 matches_len[i] = length
                 matches_np[i, :length] = matches[i]
             logging.debug("move centers by c-functions... loop: %d" % loop)
-            # void move_point(int data[], int user_len, int item_len, int k, int matches[], int matches_len[], float centers[])
+            # void move_point(int data[], int user_len, int item_len, int k,
+            #                 int matches[], int matches_len[], float centers[])
             move_point(data.ctypes.data_as(POINTER(c_int)),
                        user_len, item_len, k,
                        matches_np.ctypes.data_as(POINTER(c_int)),
@@ -225,6 +250,7 @@ def k_means(data, k, distance=sim_pearson, init_method=np.random.randint, init_p
     np.save('k_means_k%d.npy' % k, centers)
     logging.info("saved k-means centers: %s" % 'k_means_k%d.npy' % k)
     return centers
+
 
 """
 # create a 2-dim graph of users. return np.array of each users location.
@@ -320,7 +346,7 @@ def draw2d(location, matches=(), save_name='draw2d.png', local_bias=0):
         color = []
         for i in range(k):
             color.append((np.random.randint(256), np.random.randint(256), np.random.randint(256)))
-        logging.info("color is: %s" % str(color))
+        logging.debug("color is: %s" % str(color))
 
     img = Image.new('RGB', (1000, 1000), (0, 0, 0))
     draw = ImageDraw.Draw(img)
@@ -349,35 +375,46 @@ def rec_movie_set(data, user_id, group_list):
     return item_set
 
 
-def recommend(data, user_id, matches, rec_num=10):
+# recommend: weighted rating by user
+def recommend(data, user_id, matches, user_favourite=(), item_category=(), rec_num=10):
     # in which center?
     c = len(matches) + 1
     for i in range(len(matches)):
         if user_id in matches[i]:
             c = i
 
-    # rate
+    # user-rating
     rec_set = rec_movie_set(data, user_id, matches[c])
     rec_list = []
     for item in rec_set:
         rating = 0
         num = 0
         for user in matches[c]:
+            if user == user_id: continue
             rating += data[user][item]
             if data[user][item] != 0: num += 1
-        rec_list.append((float(rating)/num, item))
-        logging.debug("add movie: %d by rating: %d/%d = %f in user: %d" % (item, rating, num, rating/num, user_id))
+        rec_list.append([float(rating)/num, item])
+        logging.debug("add movie: %d by rating: %d/%d = %f in user: %d" % (item, rating, num, rating/num, user_id+1))
+
+    # add weight of category
+    if user_favourite != () and item_category != ():
+        for x in rec_list:
+            # x == [rating, item]
+            weight = sum(user_favourite[user_id]*item_category[x[1]])
+            logging.debug("trans movie: %d by rating: %f -> %f in user: %d" % (x[1], x[0], weight*x[0], user_id+1))
+            x[0] *= weight
 
     # sort by rating
     rec_list.sort()
 
-    # return list[(rating, item_id), (rating, item_id) ...]
+    # return list[[rating, item_id], [rating, item_id] ...]
     return rec_list[-rec_num:][::-1]
 
 
 # test if functions can running actually.
 # create a random 2-d data_set (value: 0~1, float) --> k-means --> draw 2d graph.
 def test_2d_data(data_len=600, k=10, save_name="k_means_test.png"):
+    logging.info("Start test_2d_data()...")
     data_set = [[np.random.random(), np.random.random()] for i in range(data_len)]
     data_set = np.array(data_set, dtype=np.float32)
     centers = k_means(data_set, k=k, distance=sq_distance, init_method=np.random.random, init_para=None)
@@ -388,11 +425,15 @@ def test_2d_data(data_len=600, k=10, save_name="k_means_test.png"):
 
 
 def test_real_data(data_name='data.npy', k=10, rec_users=(1, 345, 579, 900)):
-    data_set = load_data(data_name)
+    logging.info("Start test_real_data()...")
     logging.info("load data...")
+    data_set = load_data(data_name)
 
-    info, name = load_item_info()
     logging.info("load information of movies...")
+    item_category, name = load_item_info()
+
+    logging.info("calculate favourite(by category) of users...")
+    user_favourite = user_favourite_array(data_set, item_category)
 
     try:
         centers = np.load('k_means_k%d.npy' % k)
@@ -406,8 +447,9 @@ def test_real_data(data_name='data.npy', k=10, rec_users=(1, 345, 579, 900)):
 
     # print recommend message
     for user in rec_users:
-        rec_set = recommend(data_set, user_id=user-1, matches=group_list, rec_num=20)
-        print("\n")
+        rec_set = recommend(data_set, user_id=user-1, matches=group_list, user_favourite=user_favourite,
+                            item_category=item_category, rec_num=20)
+        logging.info("")
         logging.info("For user: %d, Recommend movie:" % user)
         for rating, item in rec_set:
             logging.info("%s  ,  rating: %f" % (name[item], rating))

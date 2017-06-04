@@ -7,7 +7,7 @@ DATA_PATH = './data/'
 
 # set one of DEBUG, INFO, WARNING, ERROR, CRITICAL
 LOG_LEVEL = logging.INFO
-LOG_NAME = 'v_intern_' + time.strftime('%Y-%m-%d_%H-%M-%S') + '.log'
+LOG_NAME = './log/v_intern_' + time.strftime('%Y-%m-%d_%H-%M-%S') + '.log'
 
 ##################################################
 # logging setting

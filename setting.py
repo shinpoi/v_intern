@@ -1,4 +1,4 @@
-# encode: utf-8
+# -*- coding: utf-8 -*-
 # Python3.5
 import logging
 import time

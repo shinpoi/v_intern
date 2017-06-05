@@ -1,4 +1,4 @@
-# encode: utf-8
+# -*- coding: utf-8 -*-
 # Python3.5
 
 import numpy as np
@@ -420,7 +420,7 @@ def test_2d_data(data_len=600, k=10, save_name="k_means_test.png"):
                       init_method=np.random.random, init_para=None, save=False)
     m = matche_user(data_set, centers, distance=sq_distance)
     for line in m:
-        print(line)
+        logging.debug("group member: %s" % str(line))
     draw2d(data_set, m, save_name=save_name)
 
 

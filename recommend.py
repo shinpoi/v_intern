@@ -11,7 +11,7 @@ parser = OptionParser()
 
 parser.add_option("-t", "--test",
                   action="store_true", dest="t", default=False,
-                  help="ランダム二次元データでk-means()ファンクションの効果をてすとする。結果が'./k_means_test.png'で保存します。")
+                  help="ランダム二次元データでk-means()ファンクションの効果をてすとする。結果が'./k_means_test.png'に保存します。")
 
 parser.add_option("-k", "--k",
                   dest="k", default=10,

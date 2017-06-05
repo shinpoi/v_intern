@@ -9,6 +9,7 @@ __pycache__
 *.npy
 *.jpg
 *.png
+*.pdf
 
 # gcc
 *.o

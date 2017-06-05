@@ -13,10 +13,9 @@ data_path = setting.DATA_PATH
 if not data_path.endswith('/'):
     data_path += '/'
 
-###########################
-# once function
 
-
+# オリジナルデータファイルを読み込み、配列の形へと整理して、保存する
+# return: np.arrayデータ
 # read original data -->  trans data to array like data[user][item] = rating -->  save data as .npy files.
 def data2npy(src_name='u.data', save_name='data.npy'):
     with open(data_path+src_name) as f:
@@ -41,25 +40,8 @@ def data2npy(src_name='u.data', save_name='data.npy'):
 
         return npy_data
 
-"""
-# return a dict of category's info
-# e.g: {'0': 'unknown', '1': 'Action', ... '18': 'Western'}
-def load_category_name(src_name='u.genre'):
-    category = {}
-    temp = []
-    with open(data_path + src_name) as f:
-        while 1:
-            l = f.readline()
-            if not l[:-1]:
-                break
-            temp.append(l[:-1].split('|'))
-        print(temp)
-        for c in temp:
-            category[c[1]] = c[0]
-    return category
-"""
 
-
+# 映画の情報を読み込む（名前とカテゴリー）
 # return (item_category, name_dict)
 # item_category.shape: (item_len, category), np.array of item include which category
 # name_dict: key-value: {item id: item name}
@@ -82,6 +64,7 @@ def load_item_info(src_name='u.item'):
     return item_category, name_dict
 
 
+# ユーザーの好み度ベクトルを計算する
 # return a np.array(shape = (user_len, category_len)) of how user like of each category
 # item_category.shape = (item_len, category_len), np.array of each item included in which category
 def user_favourite_array(data, item_category):
@@ -101,10 +84,6 @@ def user_favourite_array(data, item_category):
     return user_favourite
 
 
-# end once function
-###########################
-
-
 def load_data(name='data.npy'):
     logging.info("load datafile: %s" % name)
     try:
@@ -115,6 +94,7 @@ def load_data(name='data.npy'):
     return data
 
 
+# ピアソンの積率相関係数を計算する、返り値は（１−ピアソンの積率相関係数）
 # need two 1-dim np.arrays x and y.
 def sim_pearson(x, y):
     if len(x) != len(y):
@@ -149,11 +129,13 @@ def sim_pearson(x, y):
     return 1.0 - num/den
 
 
+# ユークリッド距離を計算する、テストモードの時使う
 # for test
 def sq_distance(x, y):
     return np.sqrt(sum((x-y)**2))
 
 
+# k-means()関数の一部。中心点を貰って、その中心点を割り当てられたユーザーリストを返す
 # sub-function in k-means. get data and k-means's center, return list[group][users].
 def matche_user(data, centers, distance=sim_pearson):
     k = centers.shape[0]
@@ -171,11 +153,13 @@ def matche_user(data, centers, distance=sim_pearson):
     return matches
 
 
+# k-means()関数
 # k-means algorithm. get data and k. return np.array of k center.
 def k_means(data, k, distance=sim_pearson, init_method=np.random.randint, init_para=6, save=True):
     user_len = data.shape[0]
     item_len = data.shape[1]
 
+    # 中心点を初期化する
     # init centers
     centers = np.zeros((k, item_len), dtype=np.float32)
     for i in range(k):
@@ -185,25 +169,31 @@ def k_means(data, k, distance=sim_pearson, init_method=np.random.randint, init_p
     last_matches = [[] for i in range(k)]
     logging.debug("centers init complete.")
 
+    # 中心点を求める流れ
     loop = 0
     while 1:
         loop += 1
+        # ユーザーを振り分ける
         # matches
         logging.info("matching... loop: %d" % loop)
         matches = matche_user(data, centers, distance=distance)
 
+        # ループが終わる条件
         if matches == last_matches:
             logging.info("cluster complete! loop: %d" % loop)
             break
         else:
             logging.debug("clusting... loop: %d" % loop)
             last_matches = matches
+        if loop > 100:
+            logging.error("loop>100, but didn't find center!")
+            break
 
-        # move center(center of group)
-        # for every center
+        # 中心点を移動する（ピアソンの積率相関係数を使う時）
+        # move center
         logging.info("move centers... loop: %d" % loop)
-
         if distance == sim_pearson:
+            # 中心点を移動関数はｃで書きましたので、ｃ関数に送る前の前処理
             # move center by Ctypes (distance == Pearson Correlation Coefficient)
             # init data
             matches_np = np.zeros((k, user_len), dtype=np.int32)
@@ -213,6 +203,7 @@ def k_means(data, k, distance=sim_pearson, init_method=np.random.randint, init_p
                 matches_len[i] = length
                 matches_np[i, :length] = matches[i]
             logging.debug("move centers by c-functions... loop: %d" % loop)
+            # 中心点を移動する流れは "move_point.c" を参考にしてください
             # void move_point(int data[], int user_len, int item_len, int k,
             #                 int matches[], int matches_len[], float centers[])
             move_point(data.ctypes.data_as(POINTER(c_int)),
@@ -222,15 +213,15 @@ def k_means(data, k, distance=sim_pearson, init_method=np.random.randint, init_p
                        centers.ctypes.data_as(POINTER(c_float)))
 
         else:
+            # 中心点を移動する（ユークリッド距離を使う時）
             # move center (distance == Euclid distance)
             centers = np.zeros((k, item_len), dtype=np.float32)
             for i in range(len(matches)):
                 for j in range(len(matches[i])):
                     centers[i] += data[matches[i][j]]
                 centers[i] /= len(matches[i])
-            if loop > 20:
-                break
 
+        # 中心点を移動する（ピアソンの積率相関係数を使う時）（Pythonヴァージョン、とても遅い）
         """
         # move center by Python (distance == Pearson Correlation Coefficient)
         for i in range(k):
@@ -251,89 +242,7 @@ def k_means(data, k, distance=sim_pearson, init_method=np.random.randint, init_p
     return centers
 
 
-"""
-# create a 2-dim graph of users. return np.array of each users location.
-def mds2d(data, distance=sim_pearson, move_rate=0.00005, max_loop=100, save_name="graph.npy"):
-    logging.info("function scaledown is runing...")
-
-    user_len = data.shape[0]
-    item_len = data.shape[1]
-
-    try:
-        real_dis = np.load("real_dis.npy")
-        logging.info("load file 'real_dis.npy'...")
-    except FileNotFoundError:
-        # real distance = pearson distance, shape = (user_len, user_len)
-        real_dis = np.zeros((user_len, user_len), dtype=np.float32)
-        for i in range(user_len):
-            for j in range(user_len):
-                real_dis[i][j] = distance(data[i], data[j])
-            print("init real distance: %d" % i)
-
-        np.save("real_dis.npy", real_dis)
-
-    # 2-dim location of users, shape = (user_len, 1)
-    location = [(np.random.random(), np.random.random()) for i in range(user_len)]
-    location = np.array(location, dtype=np.float32)*2
-
-    # euclid distance
-    euclid_dis = np.zeros((user_len, user_len), dtype=np.float32)
-
-    logging.debug("scaledown: init complete...")
-    last_error = 0
-    counter = -1
-    for m in range(max_loop):
-        # euclid distance
-        for i in range(user_len):
-            for j in range(i, user_len):
-                euclid_dis[i][j] = np.sqrt(sum((location[i]-location[j])**2))
-
-        move = np.zeros((user_len, 2), dtype=np.float32)
-        error_sum = 0
-
-        # calculate move distance
-        for i in range(user_len):
-            for j in range(user_len):
-                if i == j: continue
-                if real_dis[i][j] == 0:
-                    error = euclid_dis[i][j]*1000
-                else:
-                    error = (euclid_dis[i][j] - real_dis[i][j]) / real_dis[i][j]
-
-                if euclid_dis[i][j] != 0:
-                    move[i][0] += ((location[i][0] - location[j][0]) / euclid_dis[i][j]) * error
-                    move[i][1] += ((location[i][1] - location[j][1]) / euclid_dis[i][j]) * error
-
-                error_sum += abs(error)
-
-        # move rate control
-        counter += 1
-        if counter > 20:
-            move_rate += 0.00001
-            logging.info("loop: %d, turn up move_rate, now move_rate is %f" % (m, move_rate))
-            counter = 0
-        logging.debug("loop: %d, sum of error: %f" % (m, error_sum))
-        if last_error and last_error < error_sum:
-            move_rate -= 0.00001
-            counter = 0
-            logging.info("loop: %d, last_error < error_sum !! turn down move_rate, now move_rate is %f" % (m, move_rate))
-            if move_rate < 0.00001:
-                logging.warning("loop will break!!" % m)
-                np.save(save_name, location)
-                logging.info("save graph as '%s'" % save_name)
-                break
-        last_error = error_sum
-
-        # move
-        for i in range(user_len):
-            # print("user[%d] move %s" % (i, str(move_rate*move[i])))
-            location[i] -= move_rate*move[i]
-
-    np.save(save_name, location)
-    return location
-"""
-
-
+# テストモードに、二次元データを画像にプロットする
 # trans location to image.
 def draw2d(location, matches=(), save_name='draw2d.png', local_bias=0):
     if not matches:
@@ -360,6 +269,7 @@ def draw2d(location, matches=(), save_name='draw2d.png', local_bias=0):
     img.save(save_name, 'PNG')
 
 
+# ユーザーが見たことない、でもメンバーたちが見たことある映画を選び出す関数
 # parameter: data: np.array, user-item data; user_id: 0~ int, group_list: list of k-means users group which user_id in.
 # return a set() include movie which target user don't rate and at least two group members rated.
 def rec_movie_set(data, user_id, group_list):
@@ -369,19 +279,23 @@ def rec_movie_set(data, user_id, group_list):
     for user in group_list:
         group_rate += data[user]
     for i in range(len(data[user_id])):
+        # メンバーたちの評価値が合わせて10にも足りない時、この映画を無視する
         if data[user_id][i] != 0 and group_rate[i] > 10:
             item_set.add(i)
     return item_set
 
 
+# ユーザーに映画を推薦する
 # recommend: weighted rating by user
 def recommend(data, user_id, matches, user_favourite=(), item_category=(), rec_num=10):
+    # ユーザー所属もグループを判断する
     # in which center?
     c = len(matches) + 1
     for i in range(len(matches)):
         if user_id in matches[i]:
             c = i
 
+    # 映画の初期評価を計算する
     # user-rating
     rec_set = rec_movie_set(data, user_id, matches[c])
     rec_list = []
@@ -395,6 +309,7 @@ def recommend(data, user_id, matches, user_favourite=(), item_category=(), rec_n
         rec_list.append([float(rating)/num, item])
         logging.debug("add movie: %d by rating: %d/%d = %f in user: %d" % (item, rating, num, rating/num, user_id+1))
 
+    # 重み付き評価を計算する
     # add weight of category
     if user_favourite != () and item_category != ():
         for x in rec_list:
@@ -403,6 +318,7 @@ def recommend(data, user_id, matches, user_favourite=(), item_category=(), rec_n
             logging.debug("trans movie: %d by rating: %f -> %f in user: %d" % (x[1], x[0], weight*x[0], user_id+1))
             x[0] *= weight
 
+    # ソートとレコメンド
     # sort by rating
     rec_list.sort()
 
@@ -410,6 +326,7 @@ def recommend(data, user_id, matches, user_favourite=(), item_category=(), rec_n
     return rec_list[-rec_num:][::-1]
 
 
+# テストモードの実行関数
 # test if functions can running actually.
 # create a random 2-d data_set (value: 0~1, float) --> k-means --> draw 2d graph.
 def test_2d_data(data_len=600, k=10, save_name="k_means_test.png"):
@@ -424,7 +341,9 @@ def test_2d_data(data_len=600, k=10, save_name="k_means_test.png"):
     draw2d(data_set, m, save_name=save_name)
 
 
+# 実際推薦モードの実行関数
 def test_real_data(data_name='data.npy', k=10, rec_users=(1, 345, 579, 900), use_cache=True):
+    # データを読み込む
     logging.info("Start test_real_data()...")
     logging.info("load data...")
     data_set = load_data(data_name)
@@ -432,9 +351,11 @@ def test_real_data(data_name='data.npy', k=10, rec_users=(1, 345, 579, 900), use
     logging.info("load information of movies...")
     item_category, name = load_item_info()
 
+    # ユーザーの好みベクトルを計算する
     logging.info("calculate favourite(by category) of users...")
     user_favourite = user_favourite_array(data_set, item_category)
 
+    # クラスタリングする
     try:
         if not use_cache:
             raise FileNotFoundError
@@ -447,6 +368,7 @@ def test_real_data(data_name='data.npy', k=10, rec_users=(1, 345, 579, 900), use
     logging.info("create k-means groups list... wait a minute")
     group_list = matche_user(data_set, centers)
 
+    # レコメンドする
     # print recommend message
     for user in rec_users:
         rec_set = recommend(data_set, user_id=user-1, matches=group_list, user_favourite=user_favourite,
@@ -461,4 +383,5 @@ def test_real_data(data_name='data.npy', k=10, rec_users=(1, 345, 579, 900), use
 
 if __name__ == "__main__":
     # test_2d_data()
-    test_real_data()
+    # test_real_data()
+    pass

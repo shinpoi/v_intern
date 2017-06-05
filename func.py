@@ -172,7 +172,7 @@ def matche_user(data, centers, distance=sim_pearson):
 
 
 # k-means algorithm. get data and k. return np.array of k center.
-def k_means(data, k, distance=sim_pearson, init_method=np.random.randint, init_para=6):
+def k_means(data, k, distance=sim_pearson, init_method=np.random.randint, init_para=6, save=True):
     user_len = data.shape[0]
     item_len = data.shape[1]
 
@@ -245,10 +245,9 @@ def k_means(data, k, distance=sim_pearson, init_method=np.random.randint, init_p
                         num += 1
                 centers[i][j] = sum(sum_)/num
         """
-
-    # logging.debug("k centers: %s" % str(centers))
-    np.save('k_means_k%d.npy' % k, centers)
-    logging.info("saved k-means centers: %s" % 'k_means_k%d.npy' % k)
+    if save:
+        np.save('k_means_k%d.npy' % k, centers)
+        logging.info("saved k-means centers: %s" % 'k_means_k%d.npy' % k)
     return centers
 
 
@@ -417,14 +416,15 @@ def test_2d_data(data_len=600, k=10, save_name="k_means_test.png"):
     logging.info("Start test_2d_data()...")
     data_set = [[np.random.random(), np.random.random()] for i in range(data_len)]
     data_set = np.array(data_set, dtype=np.float32)
-    centers = k_means(data_set, k=k, distance=sq_distance, init_method=np.random.random, init_para=None)
+    centers = k_means(data_set, k=k, distance=sq_distance,
+                      init_method=np.random.random, init_para=None, save=False)
     m = matche_user(data_set, centers, distance=sq_distance)
     for line in m:
         print(line)
     draw2d(data_set, m, save_name=save_name)
 
 
-def test_real_data(data_name='data.npy', k=10, rec_users=(1, 345, 579, 900)):
+def test_real_data(data_name='data.npy', k=10, rec_users=(1, 345, 579, 900), use_cache=True):
     logging.info("Start test_real_data()...")
     logging.info("load data...")
     data_set = load_data(data_name)
@@ -436,6 +436,8 @@ def test_real_data(data_name='data.npy', k=10, rec_users=(1, 345, 579, 900)):
     user_favourite = user_favourite_array(data_set, item_category)
 
     try:
+        if not use_cache:
+            raise FileNotFoundError
         centers = np.load('k_means_k%d.npy' % k)
         logging.info("load k-means centers...")
     except FileNotFoundError:
